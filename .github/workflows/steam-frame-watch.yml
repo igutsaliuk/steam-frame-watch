@@ -1,0 +1,59 @@
+name: Steam Frame Watch
+
+# Runs every 5 minutes. When Frame becomes available for ANYTHING
+# (reservation or sale), it pushes a notification to your phone via ntfy.sh
+# and then disables itself so it stops checking.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # availability check every 5 minutes (UTC)
+    - cron: "0 16 * * *"    # daily heartbeat at 16:00 UTC (~9am PT)
+  workflow_dispatch: {}      # lets you trigger a manual test run
+
+permissions:
+  actions: write             # needed so the job can disable this workflow
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Steam Frame availability
+        id: check
+        run: |
+          set +e
+          python3 steam_stock_watch.py frame -v
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+          # 0 = available (reservation or sale), 2 = still notify-only, 1 = error
+
+      - name: Push to phone + stop watching
+        if: steps.check.outputs.code == '0'
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -fsS \
+            -H "Title: Steam Frame is available!" \
+            -H "Priority: urgent" \
+            -H "Tags: rotating_light,video_game" \
+            -H "Click: https://store.steampowered.com/hardware/steamframe" \
+            -d "Frame just left NOTIFY_ONLY — reserve/buy now: https://store.steampowered.com/hardware/steamframe" \
+            "https://ntfy.sh/${NTFY_TOPIC}"
+
+          # Stop further checks so it doesn't keep pinging you.
+          gh api --method PUT \
+            "repos/${{ github.repository }}/actions/workflows/steam-frame-watch.yml/disable"
+
+      - name: Daily heartbeat (still watching, nothing yet)
+        if: steps.check.outputs.code != '0' && github.event.schedule == '0 16 * * *'
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          curl -fsS \
+            -H "Title: Still watching Steam Frame" \
+            -H "Priority: low" \
+            -H "Tags: eyes" \
+            -d "Heartbeat: still NOTIFY_ONLY, nothing yet. Checking every 5 min." \
+            "https://ntfy.sh/${NTFY_TOPIC}"
