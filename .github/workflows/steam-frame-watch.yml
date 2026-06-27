@@ -1,14 +1,15 @@
 name: Steam Frame Watch
 
-# Runs every 5 minutes. When Frame becomes available for ANYTHING
-# (reservation or sale), it pushes a notification to your phone via ntfy.sh
-# and then disables itself so it stops checking.
+# Triggered every 5 minutes by an external cron-job.org job (GitHub honors
+# workflow_dispatch immediately, unlike the throttled `schedule` event). When
+# Frame becomes available for ANYTHING (reservation or sale), it pushes a phone
+# notification via ntfy.sh, then disables BOTH this workflow and the external
+# cron-job.org trigger so everything stops cleanly.
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # availability check every 5 minutes (UTC)
-    - cron: "0 16 * * *"    # daily heartbeat at 16:00 UTC (~9am PT)
-  workflow_dispatch: {}      # lets you trigger a manual test run
+    - cron: "0 16 * * *"    # daily heartbeat only at 16:00 UTC (~9am PT)
+  workflow_dispatch: {}      # primary trigger (fired by cron-job.org / manual)
 
 permissions:
   actions: write             # needed so the job can disable this workflow
@@ -33,6 +34,8 @@ jobs:
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CRONJOB_API_KEY: ${{ secrets.CRONJOB_API_KEY }}
+          CRONJOB_ID: ${{ vars.CRONJOB_ID }}
         run: |
           curl -fsS \
             -H "Title: Steam Frame is available!" \
@@ -42,9 +45,18 @@ jobs:
             -d "Frame just left NOTIFY_ONLY — reserve/buy now: https://store.steampowered.com/hardware/steamframe" \
             "https://ntfy.sh/${NTFY_TOPIC}"
 
-          # Stop further checks so it doesn't keep pinging you.
+          # Stop further GitHub Actions runs.
           gh api --method PUT \
             "repos/${{ github.repository }}/actions/workflows/steam-frame-watch.yml/disable"
+
+          # Disable the external cron-job.org trigger too, for a clean stop.
+          if [ -n "${CRONJOB_API_KEY}" ] && [ -n "${CRONJOB_ID}" ]; then
+            curl -fsS -X PATCH \
+              -H "Authorization: Bearer ${CRONJOB_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d '{"job":{"enabled":false}}' \
+              "https://api.cron-job.org/jobs/${CRONJOB_ID}"
+          fi
 
       - name: Daily heartbeat (still watching, nothing yet)
         if: steps.check.outputs.code != '0' && github.event.schedule == '0 16 * * *'
