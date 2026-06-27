@@ -1,0 +1,71 @@
+name: Watchers
+
+# Generic rule-based watcher. Triggered every few minutes by an external
+# cron-job.org job via workflow_dispatch (GitHub honors dispatch immediately,
+# unlike the throttled `schedule` event). Each target in watchers.toml is
+# checked; when one fires, a phone push goes out via ntfy.sh. State persists in
+# .watch_state.json (committed back). When ALL enabled targets have fired, the
+# workflow disables itself and the external cron job for a clean stop.
+
+on:
+  schedule:
+    - cron: "0 16 * * *"    # daily heartbeat at 16:00 UTC (~9am PT)
+  workflow_dispatch: {}      # primary trigger (fired by cron-job.org / manual)
+
+permissions:
+  actions: write             # disable this workflow when all targets fired
+  contents: write            # commit .watch_state.json
+
+concurrency:
+  group: watchers
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run watchers
+        id: run
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          # `run` writes code= and all_done= to $GITHUB_OUTPUT itself.
+          # Don't let a non-zero "nothing fired / error" code fail the step.
+          python3 watch.py run || true
+
+      - name: Daily heartbeat
+        if: github.event.schedule == '0 16 * * *'
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python3 watch.py heartbeat
+
+      - name: Persist state
+        run: |
+          if ! git diff --quiet -- .watch_state.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .watch_state.json
+            git commit -m "Update watch state [skip ci]"
+            git push
+          else
+            echo "No state change."
+          fi
+
+      - name: Stop everything when all targets fired
+        if: steps.run.outputs.all_done == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CRONJOB_API_KEY: ${{ secrets.CRONJOB_API_KEY }}
+          CRONJOB_ID: ${{ vars.CRONJOB_ID }}
+        run: |
+          gh api --method PUT \
+            "repos/${{ github.repository }}/actions/workflows/watch.yml/disable"
+          if [ -n "${CRONJOB_API_KEY}" ] && [ -n "${CRONJOB_ID}" ]; then
+            curl -fsS -X PATCH \
+              -H "Authorization: Bearer ${CRONJOB_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d '{"job":{"enabled":false}}' \
+              "https://api.cron-job.org/jobs/${CRONJOB_ID}"
+          fi

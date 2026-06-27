@@ -1,0 +1,39 @@
+# Watch targets. Add a [[target]] block per thing you want to monitor.
+# Notifications go to the shared ntfy topic set in the NTFY_TOPIC secret/env.
+#
+# rule options:
+#   text_appears:<substr>     fire when <substr> shows up
+#   text_absent:<substr>      fire when <substr> disappears
+#   regex:<pattern>           fire when <pattern> matches
+#   regex_absent:<pattern>    fire when <pattern> stops matching
+#   content_changed           fire when the page content changes (optionally
+#                             "content_changed:<extract-regex>" to watch a region)
+#   steam_commerce            Steam hardware page leaves NOTIFY_ONLY
+#
+# Optional per-target keys:
+#   sanity = "..."        page must contain this string or it's reported ERROR
+#   notify_title = "..."  custom push title
+#   enabled = false       pause this target without deleting it
+
+[[target]]
+name = "Steam Frame"
+url = "https://store.steampowered.com/hardware/steamframe"
+rule = "steam_commerce"
+sanity = "Steam Frame"
+notify_title = "Steam Frame is available!"
+enabled = true
+
+# --- examples (disabled) -------------------------------------------------- #
+
+# [[target]]
+# name = "Example: ticket onsale"
+# url = "https://example.com/event/123"
+# rule = "text_appears:Buy Tickets"
+# sanity = "Example Event"
+# enabled = false
+
+# [[target]]
+# name = "Example: any page change"
+# url = "https://example.com/changelog"
+# rule = "content_changed"
+# enabled = false
