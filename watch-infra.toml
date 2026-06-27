@@ -1,0 +1,7 @@
+# Declares one-time cloud infra is provisioned. No secrets here.
+# The web-watcher skill checks for this file to skip bootstrap.
+
+provisioned = true
+repo = "igutsaliuk/watchers"
+workflow = "watch.yml"
+cronjob_id = "7932931"
