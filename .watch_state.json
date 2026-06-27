@@ -1,3 +1,8 @@
 {
-  "targets": {}
+  "targets": {
+    "Steam Frame": {
+      "error_notified": false,
+      "status": "waiting"
+    }
+  }
 }
